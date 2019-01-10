@@ -250,3 +250,4 @@ dshuchu: out dx,al;数据输出，二极管发光
 	 RET
 DIR2 ENDP
 end start
+
