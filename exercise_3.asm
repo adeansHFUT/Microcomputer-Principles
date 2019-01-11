@@ -87,9 +87,11 @@ Init8259 PROC NEAR;8259初始化子程序
         OUT DX,AL
         MOV AL,09H;        icw4
         OUT DX,AL
-        MOV AL,0fcH;       ocw1,IR1，ir0 屏蔽操作控制
+        MOV AL,0fdH;       ocw1,IR1，ir0 屏蔽操作控制
         OUT DX,AL
-        mov al,21h ;       ocw2
+        mov al,21h ;       ocw2,ir1
+        out dx,al
+        mov al,20h ;       ocw2,ir0
         out dx,al
 	Pop ax
 	Pop dx
@@ -329,4 +331,5 @@ tiaochu: loop again
 DIR2 ENDP
 
 end start
+
 
