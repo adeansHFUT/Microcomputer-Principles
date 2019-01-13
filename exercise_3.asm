@@ -13,8 +13,8 @@ T1_ADDR EQU 0261H;计数器端口1
 BUFFER  DB 8 DUP(?) 
 SEG_TAB DB 0C0H,0F9H,0A4H,0B0H, 99H, 92H, 82H,0F8H
 DB 080H, 90H, 88H, 83H,0C6H,0A1H, 86H,0c7h,08ch,0ffh;0-f,最后两位控制小数点可全灭
-deng db 11111110B,11111100B,11111000B,11110000B,11100000b,11000000B,10000000B;“0”表示二极管亮
-Counter DB ?
+deng db 01111111B,00111111B,00011111B,00001111B,00000111b,00000011B,00110011B;“0”表示二极管亮
+Counter DB 0
 my_num DB 0
         .CODE
 START:  MOV AX,@DATA
@@ -28,8 +28,9 @@ START:  MOV AX,@DATA
 	MOV Counter,0;中断次数
 	CALL Init8259;8259A初始化
     CALL WriIntver;设置中断向量
-    call wriintver_2; 设置定时器中断向量
+    call WriIntver_2; 设置定时器中断向量
     CALL Init8253;8253初始化
+    call LED_quanmie 
 	STI ;开中断
 	
 A:	mov dx,5; 每位数有5个位置状态
@@ -87,7 +88,7 @@ Init8259 PROC NEAR;8259初始化子程序
         OUT DX,AL
         MOV AL,09H;        icw4
         OUT DX,AL
-        MOV AL,0fdH;       ocw1,IR1，ir0 屏蔽操作控制
+        MOV AL,0fcH;       ocw1,IR1，ir0 屏蔽操作控制
         OUT DX,AL
         mov al,21h ;       ocw2,ir1
         out dx,al
@@ -111,7 +112,7 @@ Init8253 PROC NEAR;8253初始化
 	OUT DX,AL ;CLK0/1000
 	MOV DX,COM_ADDR
 	MOV AL,77H
-	OUT DX,AL ;计数器T1为模式3状态，输出方波,BCD码计数
+	OUT DX,AL ;计数器T12状态，输出方波,BCD码计数
 	MOV DX,T1_ADDR
 	MOV AL,00H
 	OUT DX,AL
@@ -119,10 +120,28 @@ Init8253 PROC NEAR;8253初始化
 	OUT DX,AL ;CLK1/1000
     Pop ax
 	Pop dx
+	RET
 Init8253 ENDP
+
+LED_quanmie PROC NEAR ;LED全灭
+	PUSH DX;该程序为定时器中断服务子程序
+        PUSH AX
+        push bx
+        mov bl,counter
+        mov dx,pc_8255;deng缓冲区保存二极管状态信息，为0时对应二极管发光，数据通过8255C口输出
+	mov al,0ffh;二极管全灭
+	out dx,al;数据输出，二极管发光
+        pop bx
+        POP AX
+        POP DX   
+        RET 
+LED_quanmie ENDP
+
 
 WriIntver PROC NEAR;该程序功能为设置中断向量
           PUSH ES;    es:di=cs:si
+          push ax
+          push ds
           MOV AX,0
           MOV ES,AX
        	  MOV DI,24H;中断向量地址
@@ -131,11 +150,15 @@ WriIntver PROC NEAR;该程序功能为设置中断向量
           MOV AX,CS
           STOSW 
           POP ES
+          pop ax
+          pop ds
           RET
 WriIntver ENDP
 
 WriIntver_2 PROC NEAR;该程序功能为设置定时器中断向量
           PUSH ES;    es:di=cs:si
+	  push ax
+	  push ds
           MOV AX,0
           MOV ES,AX
        	  MOV DI,20H;中断向量地址
@@ -144,6 +167,8 @@ WriIntver_2 PROC NEAR;该程序功能为设置定时器中断向量
           MOV AX,CS
           STOSW 
           POP ES
+          pop ax
+          pop ds
           RET
 WriIntver_2 ENDP
 
@@ -152,7 +177,7 @@ LedDisplay PROC NEAR;该程序功能为中断显示
           push si
           mov cx,8
           mov si,0
-yazhan:;因为程序运行过程中会改变buffer缓冲区的值，所以将值保存在堆栈里
+yazhan: ;因为程序运行过程中会改变buffer缓冲区的值，所以将值保存在堆栈里
  	and ax,0000h
  	mov al,buffer[si] 
  	push ax
@@ -203,8 +228,8 @@ INT_2: PUSH DX;该程序为外部中断服务子程序
        MOV AL,Counter
        ADD AL,1
        MOV Counter,AL
-       test Counter,0000000000000001b
-	JZ delay1s
+       test AL,0000000000000001b
+	JNZ delay1s
 	MOV DX,T1_ADDR
 	MOV AL,00H
 	OUT DX,AL
@@ -218,6 +243,7 @@ delay1s:
 	MOV AL,10H
 	OUT DX,AL ;奇数延迟1s
 NEXT_0:
+	STI;提前开中断
 	MOV DX,IO8259_1
        MOV AL,0fcH;       ocw1,打开IR0
        OUT DX,AL
@@ -225,6 +251,7 @@ NEXT_0:
        MOV DX,IO8259_1
        MOV AL,0fdH;       ocw1,关闭IR0
        OUT DX,AL
+       call LED_quanmie
        MOV DX,IO8259_0
        MOV AL,21H
        OUT DX,AL
@@ -235,21 +262,27 @@ NEXT_0:
 INT_3: PUSH DX;该程序为定时器中断服务子程序
        PUSH AX
        push bx
-       inc my_num
-       mov bl,counter
+       mov bl, my_num
+       inc bl
+       mov my_num, bl
+       mov bx,0
+       mov bl,Counter
        AND BL,07H;对7取模
        mov dx,pc_8255;deng缓冲区保存二极管状态信息，为0时对应二极管发光，数据通过8255C口输出
-       and my_num,02h ;  my_num只会在1/2间变化
+       mov al, my_num
+       and al,01h ;  my_num只会在1/2间变化
        jz mie_0
-       mov al,deng[bx-1];二极管对应发光，闪烁是通过使二极管不同亮灭实现
+       mov al,deng[bx-1] ;二极管对应发光，闪烁是通过使二极管不同亮灭实现
        jmp dshuchu_0
 mie_0: 	mov al,0ffh;二极管全灭
 
 dshuchu_0: out dx,al;数据输出，二极管发光
        
        MOV DX,IO8259_0
-       MOV AL,21H
+       MOV AL,20H
        OUT DX,AL
+       ;MOV AL,21H
+       ;OUT DX,AL
        pop bx
        POP AX
        POP DX                                                                                                                                                                                                                                                  
@@ -301,7 +334,7 @@ DIR2    PROC NEAR;中断中的显示程序
 	PUSH AX
 	PUSH BX
 	PUSH DX
-	mov cx,200;    控制LED灯的闪烁时间
+	mov cx,300;    控制LED灯的闪烁时间
 again:  LEA SI,buffer ;置显示缓冲器初值
 	MOV AH,0FEH
     LEA BX,SEG_TAB
@@ -331,5 +364,6 @@ tiaochu: loop again
 DIR2 ENDP
 
 end start
+
 
 
